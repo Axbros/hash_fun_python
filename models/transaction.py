@@ -1,7 +1,7 @@
-from sqlalchemy import Column, Integer, String, DateTime, Float, Text
-from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy import Column, Integer, String, DateTime, Float
 
-Base = declarative_base()
+from database import Base
+
 
 class Transaction(Base):
     __tablename__ = "transaction"

@@ -1,4 +1,5 @@
 # services/transaction_service.py
+import datetime
 import os
 
 from fastapi import HTTPException
@@ -7,13 +8,18 @@ from starlette import status
 import logging
 
 from tronpy import Tron
-from tronpy.keys import PrivateKey
+from tronpy.keys import PrivateKey, to_base58check_address
 
 from crud.transaction import get_transaction_by_id,get_transactions_by_tx_id,update_reward_trade_hash
+from queen.task_queue import tx_task_queue
+from queen.model import TxTask
 
 PRIVATE_KEY = os.getenv("WALLET_PRIVATE_KEY")
 NETWORK = os.getenv("NETWORK")
-CONTRACT_ADDRESS = os.getenv("CONTRACT_ADDRESS")
+USDT_CONTRACT_ADDRESS = os.getenv("USDT_CONTRACT_ADDRESS")
+TRX_CONTRACT_ADDRESS = os.getenv("TRX_CONTRACT_ADDRESS")
+
+client = Tron(network=NETWORK)
 
 def get_by_id(tx_id: int, db: Session):
     tx = get_transaction_by_id(db,tx_id)
@@ -38,27 +44,50 @@ def transfer(tx_id:int,db:Session):
     if transaction.token_symbol =="TRX":
         reward_tx_id=transfer_trx(transaction.from_,int(transaction.reward*10**transaction.token_decimal))
     update_reward_trade_hash(db=db,tx_id=transaction.id,hash_value=reward_tx_id)
-    return transaction
+
+    # 延时队列查询订单状态
+    task = TxTask(
+        tx_id=reward_tx_id,
+        db_session=db,
+        transaction_id=tx_id,
+        delay=30,
+        client=client,
+        payload_builder=build_transfer_payload
+    )
+    tx_task_queue.put(task)
+    return "ok"
 
 
-
+def hex_to_base58(addr_hex: str) -> str:
+    from tronpy.keys import to_base58check_address
+    return to_base58check_address(bytes.fromhex(addr_hex))
 
 
 def transfer_trx(to_address, amount):
-    logging.info(f"🚀 开始转账 TRX {amount} 到 {to_address}")
-    client = Tron(network=NETWORK)
-    contract = client.get_contract(CONTRACT_ADDRESS)
-    private_key = PrivateKey(bytes.fromhex(PRIVATE_KEY))  # 非 base58，要 hex
+
+    """
+   原生 TRX 转账函数（单位：sun）
+
+   :param to_address: 接收方地址（Base58 格式，如 TX...）
+   :param amount: 转账金额，单位是 sun（1 TRX = 1_000_000 sun）
+   :return: 交易 ID
+   """
+    priv_key = PrivateKey(bytes.fromhex(PRIVATE_KEY))  # ✅ hex 私钥
+
+    logging.info(f"🚀 开始原生转账 TRX: {amount} 到 {to_address}）")
+
     txn = (
-        contract.functions.transfer(to_address, amount)
-        .with_owner(private_key.public_key.to_base58check_address())  # 非 base58，要 hex
-        .fee_limit(5_000_000)
+        client.trx.transfer(
+            priv_key.public_key.to_base58check_address(),  # from
+            to_address,                                    # to
+            amount                                          # 单位：sun
+        )
         .build()
-        .sign(private_key)
+        .sign(priv_key)
         .broadcast()
     )
-    logging.info(f"🚀 已发送 TRX 交易，TxID: {txn['txid']}")
-    logging.info("================================================")
+
+    logging.info(f"✅ 已发送 TRX 原生转账，TxID: {txn['txid']}")
     return txn['txid']
 
 def transfer_usdt( to_address: str, usdt_amount: int):
@@ -75,14 +104,12 @@ def transfer_usdt( to_address: str, usdt_amount: int):
     private_key = PrivateKey(bytes.fromhex(PRIVATE_KEY))
     owner_address = private_key.public_key.to_base58check_address()
     # 加载 USDT 合约
-    contract = client.get_contract(CONTRACT_ADDRESS)
+    contract = client.get_contract(USDT_CONTRACT_ADDRESS)
     logging.info(f"🎯 接收地址: {to_address}")
     amount_sun = usdt_amount
     logging.info(f"🔎 USDT 余额: {contract.functions.balanceOf(owner_address)}")
     logging.info(f"📦 要转金额: {usdt_amount}")
     assert usdt_amount <= contract.functions.balanceOf(owner_address), "余额不足"
-
-
     # 构造交易
     txn = (
         contract.functions.transfer(to_address, amount_sun)
@@ -94,8 +121,32 @@ def transfer_usdt( to_address: str, usdt_amount: int):
     )
 
     logging.info(f"✅ 已发送 USDT 交易，TxID: {txn['txid']}")
-
-
     return txn['txid']
 
+
+def build_transfer_payload(tx_info):
+    receipt = tx_info.get("receipt", {})
+    timestamp_ms = tx_info.get("blockTimeStamp", 0)
+
+    if timestamp_ms > 0:
+        timestamp_s = int(timestamp_ms / 1000)
+        dt = datetime.datetime.fromtimestamp(timestamp_s, tz=datetime.timezone.utc)  # 指定 UTC
+        block_time_str = dt.isoformat()  # e.g., '2025-07-31T08:53:21+00:00'
+    else:
+        block_time_str = None
+
+    payload = {
+        "tradeID": tx_info.get("id", ""),
+        "fee": tx_info.get("fee", 0),
+        "blockNumber": tx_info.get("blockNumber", 0),
+        "blockTimeStamp": block_time_str,  # ✅ 含时区
+        "contractResult": tx_info.get("contractResult", [""])[0],
+        "contractAddress": tx_info.get("contract_address", ""),
+        "receiptOriginEnergyUsage": receipt.get("origin_energy_usage", 0),
+        "receiptEnergyUsageTotal": receipt.get("energy_usage_total", 0),
+        "receiptNetFee": receipt.get("net_fee", 0),
+        "receiptResult": receipt.get("result", "")
+    }
+
+    return payload
 
