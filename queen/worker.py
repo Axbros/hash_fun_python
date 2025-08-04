@@ -20,6 +20,7 @@ def transaction_worker(task_queue: Queue):
             logging.info(f"🔍 链上状态 result={result}")
 
             if result != "SUCCESS":
+                logging.info(result)
                 logging.warning(f"⚠️ 链上交易失败：{task.tx_id}")
             else:
                 logging.info(f"✅ 链上交易成功，写入数据库")

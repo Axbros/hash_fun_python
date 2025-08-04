@@ -50,7 +50,7 @@ def transfer(tx_id:int,db:Session):
         tx_id=reward_tx_id,
         db_session=db,
         transaction_id=tx_id,
-        delay=30,
+        delay=60,
         client=client,
         payload_builder=build_transfer_payload
     )
