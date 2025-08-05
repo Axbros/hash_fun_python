@@ -13,6 +13,7 @@ from tronpy.keys import PrivateKey, to_base58check_address
 from crud.transaction import get_transaction_by_id,get_transactions_by_tx_id,update_reward_trade_hash
 from queen.task_queue import tx_task_queue
 from queen.model import TxTask
+from decimal import Decimal
 
 PRIVATE_KEY = os.getenv("WALLET_PRIVATE_KEY")
 NETWORK = os.getenv("NETWORK")
@@ -39,10 +40,14 @@ def transfer(tx_id:int,db:Session):
         return HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="当前下注结果不是赢")
     if transaction.reward <=0:
         return HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="返利小于0")
+    # 正确：先把 float 转为 string 再用 Decimal 保证精度
+    amount_str = str(transaction.reward)  # 或者让 reward 本身就是字符串
+    scale = Decimal(10) ** transaction.token_decimal
+    amount = int(Decimal(amount_str) * scale)
     if transaction.token_symbol == "USDT":
-        reward_tx_id=transfer_usdt(transaction.from_,int(transaction.reward*10**transaction.token_decimal))
+        reward_tx_id=transfer_usdt(transaction.from_,amount)
     if transaction.token_symbol =="TRX":
-        reward_tx_id=transfer_trx(transaction.from_,int(transaction.reward*10**transaction.token_decimal))
+        reward_tx_id=transfer_trx(transaction.from_,amount)
     update_reward_trade_hash(db=db,tx_id=transaction.id,hash_value=reward_tx_id)
 
     # 延时队列查询订单状态
