@@ -26,3 +26,4 @@ app.include_router(api_v1_router, prefix=settings.API_V1_STR)
 @app.get("/")
 async def root():
     return {"message": "Hello, FastAPI!"}
+# uvicorn main:app --reload

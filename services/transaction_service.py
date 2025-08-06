@@ -18,7 +18,6 @@ from decimal import Decimal
 PRIVATE_KEY = os.getenv("WALLET_PRIVATE_KEY")
 NETWORK = os.getenv("NETWORK")
 USDT_CONTRACT_ADDRESS = os.getenv("USDT_CONTRACT_ADDRESS")
-TRX_CONTRACT_ADDRESS = os.getenv("TRX_CONTRACT_ADDRESS")
 
 client = Tron(network=NETWORK)
 

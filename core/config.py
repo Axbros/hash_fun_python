@@ -1,7 +1,7 @@
 import logging
+import os
 
 from dotenv import load_dotenv
-import os
 
 logging.basicConfig(
     level=logging.INFO,
@@ -16,7 +16,7 @@ load_dotenv()
 
 class Settings:
     PROJECT_NAME: str = "Reward Transfer Service"
-    DEBUG: bool = True
+    DEBUG: bool = os.getenv("DEBUG")
     API_V1_STR: str = "/api/v1"
 
 settings = Settings()
