@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException,Request
 from sqlalchemy.orm import Session
 
 from services.transaction_service import transfer
@@ -16,5 +16,8 @@ def get_db():
         db.close()
 
 @router.get("/transactions/{transaction_id}")
-def transfer_transaction(transaction_id: int, db: Session = Depends(get_db)):
+def transfer_transaction(transaction_id: int,request:Request,db: Session = Depends(get_db)):
+    client_ip = request.client.host
+    if client_ip not in ("127.0.0.1", "localhost", "::1"):
+        raise HTTPException(status_code=403, detail="Forbidden: Only localhost allowed")
     return transfer(transaction_id,db)

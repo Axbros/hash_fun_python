@@ -1,7 +1,7 @@
 import threading
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI,Request
 from core.config import settings
 from api.v1.routes import router as api_v1_router
 from queen.worker import transaction_worker
@@ -24,6 +24,6 @@ app.include_router(api_v1_router, prefix=settings.API_V1_STR)
 
 
 @app.get("/")
-async def root():
-    return {"message": "Hash Fun,Have Fun!"}
+async def root(request:Request,):
+    return {"message": "Hash Fun,Have Fun!","IP":request.client.host}
 # uvicorn main:app --reload
