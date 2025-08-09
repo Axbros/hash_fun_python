@@ -14,6 +14,8 @@ from crud.transaction import get_transaction_by_id,get_transactions_by_tx_id,upd
 from queen.task_queue import tx_task_queue
 from queen.model import TxTask
 from decimal import Decimal
+from fastapi.responses import JSONResponse
+from fastapi import status
 
 PRIVATE_KEY = os.getenv("WALLET_PRIVATE_KEY")
 NETWORK = os.getenv("NETWORK")
@@ -31,14 +33,27 @@ def transfer(tx_id:int,db:Session):
     transaction = get_by_id(db=db,tx_id=tx_id)
     records=get_transactions_by_tx_id(db=db,tx_id=transaction.transaction_id)
     reward_tx_id = ""
-    if len(records)>1:
-        return HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="存在相同订单号的订单")
+    if len(records) > 1:
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={"detail": "存在相同订单号的订单"}
+        )
     if transaction.reward_trade_hash != "":
-        return HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="当前订单已处理过")
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={"detail": "当前订单已处理过"}
+        )
     if not transaction.is_win:
-        return HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="当前下注结果不是赢")
-    if transaction.reward <=0:
-        return HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="返利小于0")
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={"detail": "当前下注结果不是赢"}
+        )
+    if transaction.reward <= 0:
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={"detail": "返利小于0"}
+        )
+
     # 正确：先把 float 转为 string 再用 Decimal 保证精度
     amount_str = str(transaction.reward)  # 或者让 reward 本身就是字符串
     scale = Decimal(10) ** transaction.token_decimal
