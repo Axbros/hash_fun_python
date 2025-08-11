@@ -74,7 +74,7 @@ def transfer(tx_id:int,db:Session):
         payload_builder=build_transfer_payload
     )
     tx_task_queue.put(task)
-    return "ok"
+    return "OK"
 
 
 def hex_to_base58(addr_hex: str) -> str:
