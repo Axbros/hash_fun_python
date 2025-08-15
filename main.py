@@ -25,5 +25,7 @@ app.include_router(api_v1_router, prefix=settings.API_V1_STR)
 
 @app.get("/")
 async def root(request:Request,):
-    return {"message": "Hash Fun,Have Fun!","IP":request.client.host}
+    host = f"{request.client.host:}:{request.client.port}"
+    logging.info(f"🌍 收到来自{host}的启动探活请求")
+    return {"message": "Hash Fun,Have Fun!","HOST":host}
 # uvicorn main:app --reload
