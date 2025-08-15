@@ -149,7 +149,7 @@ def build_transfer_payload(tx_info):
 
     if timestamp_ms > 0:
         timestamp_s = int(timestamp_ms / 1000)
-        dt = datetime.datetime.fromtimestamp(timestamp_s, tz=datetime.timezone.utc)  # 指定 UTC
+        dt = datetime.datetime.fromtimestamp(timestamp_s,tz=datetime.timezone.utc)  # 指定 UTC
         block_time_str = dt.isoformat()  # e.g., '2025-07-31T08:53:21+00:00'
     else:
         block_time_str = None
