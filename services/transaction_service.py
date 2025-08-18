@@ -1,10 +1,9 @@
 # services/transaction_service.py
 import datetime
 import os
-
+from datetime import datetime, timezone
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
-from starlette import status
 import logging
 
 from tronpy import Tron
@@ -149,16 +148,17 @@ def build_transfer_payload(tx_info):
 
     if timestamp_ms > 0:
         timestamp_s = int(timestamp_ms / 1000)
-        dt = datetime.datetime.fromtimestamp(timestamp_s,tz=datetime.timezone.utc)  # 指定 UTC
-        block_time_str = dt.isoformat()  # e.g., '2025-07-31T08:53:21+00:00'
+        dt = datetime.datetime.fromtimestamp(timestamp_s, tz=datetime.timezone.utc)
+    # 转成 naive UTC datetime（去掉 tzinfo，否则某些驱动也会报错）
+        block_time_dt = dt.astimezone(datetime.timezone.utc).replace(tzinfo=None)
     else:
-        block_time_str = None
+        block_time_dt = None
 
     payload = {
         "tradeID": tx_info.get("id", ""),
         "fee": tx_info.get("fee", 0),
         "blockNumber": tx_info.get("blockNumber", 0),
-        "blockTimeStamp": block_time_str,  # ✅ 含时区
+        "blockTimeStamp": block_time_dt,  # ✅ 含时区
         "contractResult": tx_info.get("contractResult", [""])[0],
         "contractAddress": tx_info.get("contract_address", ""),
         "receiptOriginEnergyUsage": receipt.get("origin_energy_usage", 0),
@@ -169,3 +169,8 @@ def build_transfer_payload(tx_info):
 
     return payload
 
+def parse_iso_to_mysql_dt(iso_str: str) -> datetime:
+    # 兼容 "2025-08-18T12:11:51+00:00" 这类字符串
+    dt = datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
+    # 统一转 UTC，然后去掉 tzinfo（naive）
+    return dt.astimezone(timezone.utc).replace(tzinfo=None)
