@@ -1,6 +1,6 @@
 from sqlalchemy.orm import Session
 from models.transfer import Transfer
-import datetime
+from datetime import  datetime
 
 def insert_transfer_record(db: Session, payload: dict, transaction_id: int):
     # 生成 Transfer 实例
@@ -16,7 +16,7 @@ def insert_transfer_record(db: Session, payload: dict, transaction_id: int):
         receipt_energy_usage_total=payload.get("receiptEnergyUsageTotal", 0),
         receipt_net_fee=payload.get("receiptNetFee", 0),
         receipt_result=payload.get("receiptResult", ""),
-        created_at=datetime.datetime.utcnow()
+        created_at=datetime.utcnow()
     )
 
     db.add(transfer)

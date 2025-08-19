@@ -29,6 +29,7 @@ class Transaction(Base):
     odds = Column(Float, comment="赔率")
     reward = Column(Float)
     reward_trade_hash = Column(String(64), comment="回款交易哈希")
+    status = Column(Integer,comment="订单状态")
     created_at = Column(DateTime)
     updated_at = Column(DateTime)
     deleted_at = Column(DateTime)
