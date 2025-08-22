@@ -1,22 +1,38 @@
 # crud/transaction.py
 from typing import Type
 
-from sqlalchemy.orm import Session
-from models.transaction import Transaction
+import requests
 
-def get_transaction_by_id(db: Session, id: int) -> Type[Transaction] | None:
-    return db.query(Transaction).filter(Transaction.id == id).first()
+from crud import GO_HTTP_URL
+from models.transaction import Transaction, TransactionResponse
 
-def get_transactions_by_tx_id(db: Session, tx_id: str) -> list[Type[Transaction]]:
-    return db.query(Transaction).filter(Transaction.transaction_id == tx_id).all()
 
-def update_reward_trade_hash(db: Session, tx_id: int, hash_value: str,status:int) -> Transaction:
-    tx = db.query(Transaction).get(tx_id)
-    if not tx:
-        raise ValueError("交易记录不存在")
+def get_transaction_by_id(transaction_id: str) -> Type[TransactionResponse] | None:
+    url=GO_HTTP_URL+"/transaction/"+transaction_id
+    return requests.get(url).json()
 
-    tx.reward_trade_hash = hash_value
-    tx.status = status
-    db.commit()
-    db.refresh(tx)
-    return tx
+
+
+def get_transactions_by_tx_id(tx_id: str) -> Type[TransactionResponse]:
+    url=GO_HTTP_URL+"/transaction/list"
+    body={
+        "page":1,
+        "size":10,
+        "limit":10,
+        "sort":"transaction_id",
+        "columns":[
+            {
+                "name":"transaction_id",
+                "value":tx_id,
+            }
+        ]
+    }
+    return requests.post(url,json=body).json()
+
+def update_reward_trade_hash(tx_id: str, hash_value: str,status:int) -> Transaction:
+    url=GO_HTTP_URL+"/transaction/"+tx_id
+    body={
+        "reward_trade_hash":hash_value,
+        "status":status
+    }
+    return requests.put(url,json=body).json()

@@ -1,35 +1,62 @@
-from sqlalchemy import Column, Integer, String, DateTime, Float
+from pydantic import BaseModel
 
-from database import Base
+from dataclasses import dataclass
+from typing import Optional
+from datetime import datetime
 
 
-class Transaction(Base):
-    __tablename__ = "transaction"
+@dataclass
+class Transaction:
+    id: int
+    transactionID: str
+    tokenSymbol: str
+    tokenAddress: Optional[str]
+    tokenDecimal: int
+    tokenName: str
+    blockNumber: int
+    blockHash: str
+    blockDx: Optional[str]
+    blockDs: Optional[str]
+    blockTimestamp: datetime
+    from_: str
+    to: str
+    type: str
+    value: str
+    isWin: int   # ✅ 改回驼峰，和 API 一致
+    odds: float
+    reward: float
+    reward_trade_hash: str
+    createdAt: datetime
+    updatedAt: datetime
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    transaction_id = Column(String(128), unique=True, comment="交易ID/交易哈希")
-    token_symbol = Column(String(32), comment="代币符号如USDT")
-    token_address = Column(String(64), comment="合约地址")
-    token_decimal = Column(Integer, comment="精度")
-    token_name = Column(String(32), comment="完整名称")
-    block_number = Column(Integer, comment="区块编号")
-    block_hash = Column(String(64), comment="区块哈希")
-    game_type = Column(String(32))
-    result_number = Column(Integer, comment="区块结果")
-    is_result_ge5 = Column(Integer)
-    is_result_even = Column(Integer)
-    block_timestamp = Column(DateTime, comment="上链时间")
-    from_ = Column("from", String(64), comment="发送方地址")
-    to = Column(String(64), comment="接收方地址")
-    type = Column(String(32), comment="交易类型")
-    value = Column(String(32), comment="原始数量")
-    calculated_value = Column(Integer, comment="真实整数金额")
-    actual_amount = Column(Float, comment="真实金额")
-    is_win = Column(Integer)
-    odds = Column(Float, comment="赔率")
-    reward = Column(Float)
-    reward_trade_hash = Column(String(64), comment="回款交易哈希")
-    status = Column(Integer,comment="订单状态")
-    created_at = Column(DateTime)
-    updated_at = Column(DateTime)
-    deleted_at = Column(DateTime)
+    @classmethod
+    def from_dict(cls, data: dict) -> "Transaction":
+        return cls(
+            id=data["id"],
+            transactionID=data["transactionID"],
+            tokenSymbol=data["tokenSymbol"],
+            tokenAddress=data.get("tokenAddress"),
+            tokenDecimal=int(data["tokenDecimal"]),
+            tokenName=data["tokenName"],
+            blockNumber=int(data["blockNumber"]),
+            blockHash=data["blockHash"],
+            blockDx=data.get("blockDx"),
+            blockDs=data.get("blockDs"),
+            blockTimestamp=datetime.fromisoformat(data["blockTimestamp"]),
+            from_=data["from"],
+            to=data["to"],
+            type=data["type"],
+            value=data["value"],
+            isWin=int(data["isWin"]),   # ✅ 直接对上
+            odds=float(data["odds"]),
+            reward=float(data["reward"]),
+            reward_trade_hash=data.get("reward_trade_hash", ""),
+            createdAt=datetime.fromisoformat(data["createdAt"]),
+            updatedAt=datetime.fromisoformat(data["updatedAt"]),
+        )
+
+
+class TransactionResponse(BaseModel):
+    code: int
+    msg: str
+    data: dict  # 你也可以直接放 Transaction，但这里保留灵活性

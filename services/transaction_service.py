@@ -1,20 +1,20 @@
 # services/transaction_service.py
 import datetime
+import logging
 import os
 from datetime import datetime, timezone
-from fastapi import HTTPException
-from sqlalchemy.orm import Session
-import logging
-
-from tronpy import Tron
-from tronpy.keys import PrivateKey, to_base58check_address
-
-from crud.transaction import get_transaction_by_id,get_transactions_by_tx_id,update_reward_trade_hash
-from queen.task_queue import tx_task_queue
-from queen.model import TxTask
 from decimal import Decimal, ROUND_DOWN
-from fastapi.responses import JSONResponse
+
+from fastapi import HTTPException
 from fastapi import status
+from fastapi.responses import JSONResponse
+from tronpy import Tron
+from tronpy.keys import PrivateKey
+
+from crud.transaction import get_transaction_by_id, get_transactions_by_tx_id, update_reward_trade_hash
+from models import Transaction
+from queen.model import TxTask
+from queen.task_queue import tx_task_queue
 
 PRIVATE_KEY = os.getenv("WALLET_PRIVATE_KEY")
 NETWORK = os.getenv("NETWORK")
@@ -24,42 +24,37 @@ client = Tron(network=NETWORK)
 FEE_RESERVE_SUN = 100_000  # 预留手续费，约 0.1 TRX；按需调整
 SUN_PER_TRX = 1_000_000
 
-def get_by_id(tx_id: int, db: Session):
-    tx = get_transaction_by_id(db,tx_id)
-    if not tx:
+def get_by_id(tx_id: str) -> Transaction:
+    tx_json_response = get_transaction_by_id(tx_id)
+    code = tx_json_response.get("code", None)
+    if code is None or code != 0:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="交易不存在")
-    return tx
+    tx_data = tx_json_response["data"]["transaction"]
+    return Transaction.from_dict(tx_data)
 
-def transfer(tx_id: int, db: Session):
+
+def transfer(tx_id: str):
     try:
         # 读取订单
-        transaction = get_by_id(db=db, tx_id=tx_id)
+        transaction = get_by_id(tx_id=tx_id)
         if transaction is None:
             return JSONResponse(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 content={"detail": "订单不存在"}
             )
-
-        # 幂等/唯一性检查
-        records = get_transactions_by_tx_id(db=db, tx_id=transaction.transaction_id)
-        if records and len(records) > 1:
-            return JSONResponse(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                content={"detail": "存在相同订单号的订单"}
-            )
-
         # 已处理过
         if transaction.reward_trade_hash:
             return JSONResponse(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                content={"detail": "当前订单已处理过"}
+                content={"detail": "当前订单已处理过,回款哈希："+transaction.reward_trade_hash}
             )
 
+
         # 业务前置校验
-        if not transaction.is_win:
+        if not transaction.isWin:
             return JSONResponse(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                content={"detail": "当前下注结果不是赢"}
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                content={"detail": "当前竞猜结果为失败，禁止转账"}
             )
 
         # 金额校验
@@ -70,9 +65,25 @@ def transfer(tx_id: int, db: Session):
                 content={"detail": "返利小于等于 0"}
             )
 
+
+        # 幂等/唯一性检查
+        records = get_transactions_by_tx_id(tx_id=transaction.transactionID)
+        records_code = records['code']
+        if records_code ==0 :
+            if records.get("data").get("total")> 1:
+                return JSONResponse(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    content={"detail": "存在相同订单号的订单"}
+                )
+        else:
+            return JSONResponse(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                content={"detail": records['msg']}
+            )
+
         # ===== 金额放大到最小单位（整数）=====
         # 例如 USDT/TRX 在 Tron 上通常是 6 位小数
-        token_decimals = int(transaction.token_decimal or 0)
+        token_decimals = int(transaction.tokenDecimal or 0)
         scale = Decimal(10) ** token_decimals
         # 使用量化避免浮点误差；向下取整以避免超发
         amount_int = int((reward_dec * scale).quantize(Decimal("1"), rounding=ROUND_DOWN))
@@ -86,12 +97,12 @@ def transfer(tx_id: int, db: Session):
         to_addr = transaction.from_
 
         try:
-            if transaction.token_symbol == "USDT":
+            if transaction.tokenSymbol == "USDT":
                 reward_tx_id = transfer_usdt(
                     to_address=to_addr,
                     usdt_amount=amount_int,  # USDT 的最小单位
                 )
-            elif transaction.token_symbol == "TRX":
+            elif transaction.tokenSymbol == "TRX":
                 reward_tx_id = transfer_trx(
                     to_address=to_addr,
                     amount=amount_int,         # TRX 最小单位 sun
@@ -99,11 +110,11 @@ def transfer(tx_id: int, db: Session):
             else:
                 return JSONResponse(
                     status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    content={"detail": f"暂不支持的代币：{transaction.token_symbol}"}
+                    content={"detail": f"暂不支持的代币：{transaction.tokenSymbol}"}
                 )
         except ValueError as e:
             logging.warning("奖励转账失败（余额不足）：%s", e)
-            update_reward_trade_hash(db=db, tx_id=tx_id, hash_value="",status=2)
+            update_reward_trade_hash(tx_id=tx_id, hash_value="",status=2)
             return JSONResponse(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 content={"status": "failed", "detail": str(e)}
@@ -111,32 +122,22 @@ def transfer(tx_id: int, db: Session):
         except Exception as e:
             # 任何链上异常都视为 failed
             logging.exception("链上转账失败：tx_id=%s, token=%s, to=%s, amount=%s",
-                              tx_id, transaction.token_symbol, to_addr, amount_int)
-            db.rollback()  # 防止前面有人开启了事务
+                              tx_id, transaction.tokenSymbol, to_addr, amount_int)
             return JSONResponse(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 content={"status": "failed", "detail": str(e)}
             )
 
         # ===== 只有成功才落库并入队 =====
-        update_reward_trade_hash(db=db, tx_id=transaction.id, hash_value=reward_tx_id,status=1)
-        try:
-            db.commit()
-        except Exception:
-            logging.exception("更新 reward_trade_hash 提交失败，准备回滚并返回 failed")
-            db.rollback()
-            return JSONResponse(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                content={"status": "failed", "detail": "数据库提交失败"}
-            )
+        update_reward_trade_hash(tx_id=tx_id, hash_value=reward_tx_id,status=1)
+
 
         # 入队异步查询任务（用链上 txid & 业务订单 id）
         try:
             task = TxTask(
                 tx_id=reward_tx_id,      # 链上交易哈希
-                db_session=db,
                 transaction_id=transaction.id,
-                delay=60,
+                delay=15,
                 client=client,
                 payload_builder=build_transfer_payload
             )
@@ -155,10 +156,6 @@ def transfer(tx_id: int, db: Session):
     except Exception as e:
         # 兜底异常 → failed
         logging.exception("处理 transfer(%s) 发生未预期异常：%s", tx_id, e)
-        try:
-            db.rollback()
-        except Exception:
-            pass
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={"status": "failed", "detail": "服务器内部错误"}
@@ -261,17 +258,17 @@ def build_transfer_payload(tx_info):
 
     if timestamp_ms > 0:
         timestamp_s = int(timestamp_ms / 1000)
-        dt = datetime.datetime.fromtimestamp(timestamp_s, tz=datetime.timezone.utc)
-    # 转成 naive UTC datetime（去掉 tzinfo，否则某些驱动也会报错）
-        block_time_dt = dt.astimezone(datetime.timezone.utc).replace(tzinfo=None)
+        dt = datetime.fromtimestamp(timestamp_s, tz=timezone.utc)
+        block_time_str = dt.strftime("%Y-%m-%dT%H:%M:%SZ")  # ✅ Go 能识别
     else:
-        block_time_dt = None
+        block_time_str = None
 
     payload = {
+        "transaction_id": tx_info.get("transaction_id", 0),
         "tradeID": tx_info.get("id", ""),
         "fee": tx_info.get("fee", 0),
         "blockNumber": tx_info.get("blockNumber", 0),
-        "blockTimeStamp": block_time_dt,  # ✅ 含时区
+        "blockTimeStamp": block_time_str,  # ✅ RFC3339
         "contractResult": tx_info.get("contractResult", [""])[0],
         "contractAddress": tx_info.get("contract_address", ""),
         "receiptOriginEnergyUsage": receipt.get("origin_energy_usage", 0),

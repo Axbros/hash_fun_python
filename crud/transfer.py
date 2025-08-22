@@ -1,25 +1,21 @@
-from sqlalchemy.orm import Session
-from models.transfer import Transfer
-from datetime import  datetime
+import requests
 
-def insert_transfer_record(db: Session, payload: dict, transaction_id: int):
-    # 生成 Transfer 实例
-    transfer = Transfer(
-        transaction_id=transaction_id,
-        trade_id=payload.get("tradeID", ""),
-        fee=payload.get("fee", 0),
-        block_number=payload.get("blockNumber", 0),
-        block_timeStamp=payload.get("blockTimeStamp"),  # 已是 datetime 类型或 None
-        contract_result=payload.get("contractResult", ""),
-        contract_address=payload.get("contractAddress", ""),
-        receipt_origin_energy_usage=payload.get("receiptOriginEnergyUsage", 0),
-        receipt_energy_usage_total=payload.get("receiptEnergyUsageTotal", 0),
-        receipt_net_fee=payload.get("receiptNetFee", 0),
-        receipt_result=payload.get("receiptResult", ""),
-        created_at=datetime.utcnow()
-    )
+from crud import GO_HTTP_URL
 
-    db.add(transfer)
-    db.commit()
-    db.refresh(transfer)
-    return transfer
+
+def insert_transfer_record(payload: dict, transaction_id: int):
+    url = GO_HTTP_URL+"/transfer/"
+    body={
+        "transaction_id":transaction_id,
+        "tradeID":payload.get("tradeID", ""),
+        "fee":payload.get("fee", 0),
+        "blockNumber":payload.get("blockNumber", 0),
+        "blockTimeStamp":payload.get("blockTimeStamp"),  # 已是 datetime 类型或 None
+        "contractResult":payload.get("contractResult", ""),
+        "contractAddress":payload.get("contractAddress", ""),
+        "receiptOriginEnergyUsage":payload.get("receiptOriginEnergyUsage", 0),
+        "receiptEnergyUsageTotal":payload.get("receiptEnergyUsageTotal", 0),
+        "receiptNetFee":payload.get("receiptNetFee", 0),
+        "receiptResult":payload.get("receiptResult", ""),
+    }
+    return requests.post(url,json=body).json()
